@@ -64,13 +64,25 @@ func UpdateRecipeHandler(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusNotFound, Message{Message: id + " not found"})
 	}
+}
 
-func ListRecipesHandler(c *gin.Context) {
-	if recipes == nil {
-		c.JSON(http.StatusNotFound, Message{Message: "No recipes"})
-		return
+func DelRecipeHandler(c *gin.Context) {
+	id := c.Param("id")
+	found := false
+	recipe := Recipe{}
+	for i, r := range recipes {
+		if r.ID == id {
+			recipe = r
+			recipes = append(recipes[:i], recipes[i+1:]...)
+			found = true
+			break
+		}
 	}
-	c.JSON(http.StatusOK, recipes)
+	if found {
+		c.JSON(http.StatusOK, recipe)
+	} else {
+		c.JSON(http.StatusNotFound, Message{Message: id + " not found"})
+	}
 }
 
 func main() {
@@ -78,5 +90,6 @@ func main() {
 	router.POST("/recipes", NewRecipeHandler)
 	router.GET("/recipes", ListRecipesHandler)
 	router.PUT("/recipes/:id", UpdateRecipeHandler)
+	router.DELETE("/recipes/:id", DelRecipeHandler)
 	router.Run()
 }
