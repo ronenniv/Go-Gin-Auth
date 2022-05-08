@@ -85,11 +85,32 @@ func DelRecipeHandler(c *gin.Context) {
 	}
 }
 
+func SearchRecipesHandler(c *gin.Context) {
+	tag := c.Query("tag")
+	listReciepes := make([]Recipe, 0)
+	found := false
+	for _, r := range recipes {
+		for i := 0; i < len(r.Tags); i++ {
+			if r.Tags[i] == tag {
+				found = true
+				listReciepes = append(listReciepes, r)
+				break
+			}
+		}
+	}
+	if found {
+		c.JSON(http.StatusOK, listReciepes)
+	} else {
+		c.JSON(http.StatusNotFound, Message{Message: tag + " not found"})
+	}
+}
+
 func main() {
 	router := gin.Default()
 	router.POST("/recipes", NewRecipeHandler)
 	router.GET("/recipes", ListRecipesHandler)
 	router.PUT("/recipes/:id", UpdateRecipeHandler)
 	router.DELETE("/recipes/:id", DelRecipeHandler)
+	router.GET("/recipes/search", SearchRecipesHandler)
 	router.Run()
 }
