@@ -64,6 +64,13 @@ func UpdateRecipeHandler(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusNotFound, Message{Message: id + " not found"})
 	}
+
+func ListRecipesHandler(c *gin.Context) {
+	if recipes == nil {
+		c.JSON(http.StatusNotFound, Message{Message: "No recipes"})
+		return
+	}
+	c.JSON(http.StatusOK, recipes)
 }
 
 func main() {
