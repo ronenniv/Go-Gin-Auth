@@ -34,7 +34,7 @@ func NewRecipesHandler(ctx context.Context, collection *mongo.Collection, redisC
 func (rh *RecipesHandler) ListRecipesHandler(c *gin.Context) {
 	val, err := rh.redisClient.Get(rh.ctx, "recipes").Result()
 	if err == redis.Nil {
-		log.Println("recipes not found in redis")
+		log.Printf("redis miss cache")
 		cur, err := rh.collection.Find(rh.ctx, bson.M{})
 		if err != nil {
 			c.JSON(http.StatusNotFound, models.Message{Message: "No recipes"})
@@ -54,7 +54,7 @@ func (rh *RecipesHandler) ListRecipesHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.Message{Message: err.Error()})
 		return
 	} else {
-		log.Println("Request from redis")
+		log.Println("redis hit cache")
 		recipes := make([]models.Recipe, 0)
 		json.Unmarshal([]byte(val), &recipes)
 		c.JSON(http.StatusOK, recipes)
@@ -101,20 +101,23 @@ func (rh *RecipesHandler) DelRecipeHandler(c *gin.Context) {
 		return
 	}
 
-	log.Println("Remove data from Redis")
+	log.Printf("Remove %s from Redis", id)
 	rh.redisClient.Del(rh.ctx, "recipes")
+	rh.redisClient.Del(rh.ctx, id)
 
 	c.JSON(http.StatusOK, id)
 }
 
-// update single recipe for hte provided id and body details
+// update single recipe for the provided id and body details
 func (rh *RecipesHandler) UpdateRecipeHandler(c *gin.Context) {
 	id := c.Param("id")
 	var recipe models.Recipe
+	// get request body
 	if err := c.ShouldBindJSON(&recipe); err != nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
 		return
 	}
+	// convert id to mongodb object id
 	objectid, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: id + "is not a valid ObjectId"})
@@ -139,9 +142,54 @@ func (rh *RecipesHandler) UpdateRecipeHandler(c *gin.Context) {
 		return
 	}
 
-	log.Println("Remove data from Redis")
+	log.Println("Remove recipes from Redis")
 	rh.redisClient.Del(rh.ctx, "recipes")
+	log.Printf("Update %s in redis", id)
+	data, _ := json.Marshal(&recipe)
+	rh.redisClient.Set(rh.ctx, id, string(data), 0)
 
+	c.JSON(http.StatusOK, recipe)
+}
+
+// get single recipe for the provided id
+func (rh *RecipesHandler) GetRecipeHandler(c *gin.Context) {
+	var recipe models.Recipe
+	id := c.Param("id")
+
+	// check if id exist in redis
+	res, err := rh.redisClient.Get(rh.ctx, id).Result()
+	if err == redis.Nil {
+		log.Printf("%s redis cache miss", id)
+		// convert request id to mongodb objectid
+		objectid, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.Message{Message: id + "is not a valid ObjectId"})
+			return
+		}
+
+		// fetch from mongo
+		filter := bson.D{{"_id", objectid}}
+		err = rh.collection.FindOne(rh.ctx, filter).Decode(&recipe)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				c.JSON(http.StatusNotFound, models.Message{Message: id + " is not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, models.Message{Message: err.Error()})
+			return
+		}
+		// add entry to redis
+		log.Printf("Add %s to Redis", id)
+		data, _ := json.Marshal(&recipe)
+		rh.redisClient.Set(rh.ctx, id, string(data), 0)
+	} else {
+		// id exist in redis
+		log.Printf("%s redis cache hit", id)
+		if err = json.Unmarshal([]byte(res), &recipe); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Message{Message: err.Error()})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, recipe)
 }
 
@@ -161,8 +209,12 @@ func (rh *RecipesHandler) NewRecipeHandler(c *gin.Context) {
 		return
 	}
 
-	log.Println("Remove data from Redis")
+	log.Println("Remove recipes from Redis")
 	rh.redisClient.Del(rh.ctx, "recipes")
+	id, _ := recipe.ID.MarshalText()
+	log.Printf("add %s to redis", id)
+	data, _ := json.Marshal(&recipe)
+	rh.redisClient.Set(rh.ctx, string(id), string(data), 0)
 
 	c.JSON(http.StatusOK, recipe)
 }
