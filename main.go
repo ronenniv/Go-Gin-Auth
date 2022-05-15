@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -13,6 +14,7 @@ import (
 )
 
 var recipesHandler *handlers.RecipesHandler
+var authHandler *handlers.AuthHandler
 
 func init() {
 	ctx := context.Background()
@@ -39,15 +41,35 @@ func init() {
 	log.Printf("redisClient status %v\n", status)
 
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
+	authHandler = &handlers.AuthHandler{}
+}
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetHeader("X-API-KEY") != os.Getenv("X_API_KEY") {
+			c.AbortWithStatus(401)
+		}
+		c.Next()
+	}
 }
 
 func main() {
 	router := gin.Default()
-	router.POST("/recipes", recipesHandler.NewRecipeHandler)
-	router.GET("/recipes", recipesHandler.ListRecipesHandler)
-	router.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
-	router.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
-	router.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
-	router.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
+	router.POST("/login", authHandler.SignInHandler)
+
+	nonauth := router.Group("/v1")
+	nonauth.GET("/recipes", recipesHandler.ListRecipesHandler)
+
+	authorized := router.Group("/v1")
+	authorized.Use(authHandler.AuthMiddleware())
+	{
+		// authorized.GET("/recipes", recipesHandler.ListRecipesHandler)
+		authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
+		authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
+		authorized.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
+		authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
+		authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
+	}
+
 	router.Run()
 }
