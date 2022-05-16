@@ -30,6 +30,7 @@ func init() {
 	log.Println("Connected to MongoDB")
 
 	collection := client.Database("demo").Collection("recipes")
+	usersCollection := client.Database("demo").Collection("users")
 
 	// redis
 	redisClient := redis.NewClient(&redis.Options{
@@ -41,7 +42,7 @@ func init() {
 	log.Printf("redisClient status %v\n", status)
 
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
-	authHandler = &handlers.AuthHandler{}
+	authHandler = handlers.NewAuthHAndler(usersCollection, ctx)
 }
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -55,7 +56,8 @@ func AuthMiddleware() gin.HandlerFunc {
 
 func main() {
 	router := gin.Default()
-	router.POST("/login", authHandler.SignInHandler)
+	router.GET("/login", authHandler.SignInHandler)
+	router.POST("/login", authHandler.AddUser)
 
 	nonauth := router.Group("/v1")
 	nonauth.GET("/recipes", recipesHandler.ListRecipesHandler)
@@ -69,6 +71,7 @@ func main() {
 		authorized.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
 		authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
 		authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
+		authorized.POST("/refresh", authHandler.RefreshHandler)
 	}
 
 	router.Run()
