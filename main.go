@@ -20,52 +20,51 @@ func init() {
 	ctx := context.Background()
 
 	// mongodb
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://admin:password@localhost:27017"))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
 		log.Fatal(err)
 	}
 	if err = client.Ping(context.TODO(), readpref.Primary()); err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Connected to MongoDB")
+	log.Printf("Connected to MongoDB at %s", os.Getenv("MONGO_URI"))
 
-	collection := client.Database("demo").Collection("recipes")
-	usersCollection := client.Database("demo").Collection("users")
+	collection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("recipes")
+	usersCollection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("users")
 
 	// redis
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     os.Getenv("REDIS_ADDR"),
 		Password: "",
 		DB:       0,
 	})
 	status := redisClient.Ping(ctx)
-	log.Printf("redisClient status %v\n", status)
+	log.Printf("redisClient at %s with status %v\n", os.Getenv("REDIS_ADDR"), status)
 
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
 	authHandler = handlers.NewAuthHAndler(usersCollection, ctx)
 }
 
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if c.GetHeader("X-API-KEY") != os.Getenv("X_API_KEY") {
-			c.AbortWithStatus(401)
-		}
-		c.Next()
-	}
-}
-
 func main() {
 	router := gin.Default()
-	router.GET("/login", authHandler.SignInHandler)
-	router.POST("/login", authHandler.AddUser)
+	// // cookies
+	// store, _ := redisStore.NewStore(10, "tcp", os.Getenv("REDIS_ADDR"), "", []byte("secret"))
+	// router.Use(sessions.Sessions("recipes_api", store))
+	// // end of cookie //
+
+	// router.GET("/login", authHandler.SignInHandlerCookie)     // Cookie
+	// router.POST("/signout", authHandler.SignOutHandlerCookie) // Cookie
+	router.GET("/login", authHandler.SignInHandlerJWT) // JWT
+	router.POST("/adduser", authHandler.AddUser)       // for testing only - to create users
 
 	nonauth := router.Group("/v1")
 	nonauth.GET("/recipes", recipesHandler.ListRecipesHandler)
 
 	authorized := router.Group("/v1")
-	authorized.Use(authHandler.AuthMiddleware())
+	// authorized.Use(authHandler.AuthMiddlewareAuth0())
+	// authorized.Use(authHandler.AuthMiddlewareCookie())
+	authorized.Use(authHandler.AuthMiddlewareJWT())
 	{
-		// authorized.GET("/recipes", recipesHandler.ListRecipesHandler)
 		authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
 		authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
 		authorized.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
