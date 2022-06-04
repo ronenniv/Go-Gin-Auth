@@ -47,6 +47,7 @@ func NewAuthHAndler(collection *mongo.Collection, ctx context.Context) *AuthHand
 }
 
 func (h *AuthHandler) SignInHandlerCookie(c *gin.Context) {
+	// Cookie session - create the cookie
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
@@ -74,6 +75,7 @@ func (h *AuthHandler) SignInHandlerCookie(c *gin.Context) {
 }
 
 func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
+	// JWT session - create new session
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
@@ -117,6 +119,7 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 }
 
 func (h *AuthHandler) AddUser(c *gin.Context) {
+	// add user to mongodb
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
@@ -150,6 +153,7 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 }
 
 func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
+	// JWT session - refresh/renew session
 	tokenValue := c.GetHeader("Authorization")
 	claims := &Claims{}
 	tkn, err := jwt.ParseWithClaims(tokenValue, claims,
@@ -184,6 +188,7 @@ func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
 }
 
 func (handler *AuthHandler) AuthMiddlewareAuth0() gin.HandlerFunc {
+	// Auth0 session
 	return func(c *gin.Context) {
 		var auth0Domain = "https://" + os.Getenv("AUTH0_DOMAIN") + "/"
 		client := auth0.NewJWKClient(auth0.JWKClientOptions{URI: auth0Domain + ".well-known/jwks.json"}, nil)
@@ -235,6 +240,7 @@ func (handler *AuthHandler) AuthMiddlewareCookie() gin.HandlerFunc {
 }
 
 func (handler *AuthHandler) SignOutHandlerCookie(c *gin.Context) {
+	// Cookie session - clear the session
 	session := sessions.Default(c)
 	session.Clear()
 	session.Save()

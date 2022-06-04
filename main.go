@@ -39,6 +39,9 @@ func init() {
 		DB:       0,
 	})
 	status := redisClient.Ping(ctx)
+	if status.Err() != nil {
+		log.Fatal(status.Err())
+	}
 	log.Printf("redisClient at %s with status %v\n", os.Getenv("REDIS_ADDR"), status)
 
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
@@ -61,9 +64,9 @@ func main() {
 	nonauth.GET("/recipes", recipesHandler.ListRecipesHandler)
 
 	authorized := router.Group("/v1")
-	// authorized.Use(authHandler.AuthMiddlewareAuth0())
-	// authorized.Use(authHandler.AuthMiddlewareCookie())
-	authorized.Use(authHandler.AuthMiddlewareJWT())
+	// authorized.Use(authHandler.AuthMiddlewareAuth0())  // Auth0
+	// authorized.Use(authHandler.AuthMiddlewareCookie())  // Cookie
+	authorized.Use(authHandler.AuthMiddlewareJWT()) // JWT
 	{
 		authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
 		authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
