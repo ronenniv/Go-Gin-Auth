@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dgrijalva/jwt-go/v4"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/ronenniv/Go-Gin-Auth/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -24,7 +24,7 @@ type AuthHandler struct {
 
 type Claims struct {
 	Username string `json:"username"`
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 type JWTOutput struct {
@@ -62,8 +62,9 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 	expirationTime := time.Now().Add(10 * time.Minute)
 	claims := &Claims{
 		Username: user.Username,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: jwt.At(expirationTime),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+			Issuer:    "test",
 		},
 	}
 	var err error
@@ -125,10 +126,10 @@ func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
 	claims := &Claims{}
 	tkn, err := jwt.ParseWithClaims(tokenValue, claims,
 		func(token *jwt.Token) (interface{}, error) {
-			return key, nil
+			return key.Public(), nil
 		})
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, models.Message{Error: err.Error()})
+		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
 	if tkn == nil || !tkn.Valid {
@@ -136,7 +137,7 @@ func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
 		return
 	}
 	expirationTime := time.Now().Add(5 * time.Minute)
-	claims.ExpiresAt = jwt.At(expirationTime)
+	claims.ExpiresAt = jwt.NewNumericDate(expirationTime)
 	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Fatal(err)
@@ -159,9 +160,8 @@ func (handler *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenValue := c.GetHeader("Authorization")
 		claims := &Claims{}
-
 		tkn, err := jwt.ParseWithClaims(tokenValue, claims, func(token *jwt.Token) (interface{}, error) {
-			return key, nil
+			return key.Public(), nil
 		})
 		if err != nil {
 			c.AbortWithStatus(http.StatusUnauthorized)

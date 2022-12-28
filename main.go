@@ -52,10 +52,8 @@ func main() {
 	router := gin.Default()
 
 	router.GET("/login", authHandler.SignInHandlerJWT) // JWT
-	router.POST("/adduser", authHandler.AddUser)       // for testing only - to create users
-
-	nonauth := router.Group("/v1")
-	nonauth.GET("/recipes", recipesHandler.ListRecipesHandler)
+	router.POST("/refresh", authHandler.RefreshHandler)
+	router.POST("/adduser", authHandler.AddUser) // for testing only - to create users
 
 	authorized := router.Group("/v1")
 	authorized.Use(authHandler.AuthMiddlewareJWT()) // JWT
@@ -63,10 +61,9 @@ func main() {
 		authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
 		authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
 		authorized.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
+		authorized.GET("/recipes", recipesHandler.ListRecipesHandler)
 		authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
 		authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
-		authorized.POST("/refresh", authHandler.RefreshHandler)
 	}
-
 	router.Run()
 }
