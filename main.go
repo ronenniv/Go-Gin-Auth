@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
-	"github.com/ronenniv/webclient/handlers"
+	"github.com/ronenniv/Go-Gin-Auth/handlers"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -50,13 +50,7 @@ func init() {
 
 func main() {
 	router := gin.Default()
-	// // cookies
-	// store, _ := redisStore.NewStore(10, "tcp", os.Getenv("REDIS_ADDR"), "", []byte("secret"))
-	// router.Use(sessions.Sessions("recipes_api", store))
-	// // end of cookie //
 
-	// router.GET("/login", authHandler.SignInHandlerCookie)     // Cookie
-	// router.POST("/signout", authHandler.SignOutHandlerCookie) // Cookie
 	router.GET("/login", authHandler.SignInHandlerJWT) // JWT
 	router.POST("/adduser", authHandler.AddUser)       // for testing only - to create users
 
@@ -64,8 +58,6 @@ func main() {
 	nonauth.GET("/recipes", recipesHandler.ListRecipesHandler)
 
 	authorized := router.Group("/v1")
-	// authorized.Use(authHandler.AuthMiddlewareAuth0())  // Auth0
-	// authorized.Use(authHandler.AuthMiddlewareCookie())  // Cookie
 	authorized.Use(authHandler.AuthMiddlewareJWT()) // JWT
 	{
 		authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
