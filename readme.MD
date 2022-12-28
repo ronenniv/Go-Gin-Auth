@@ -6,3 +6,5 @@ Check the branches for code examples:
 * JWT-session
 * Cookie session
 
+Check out this Medium article for more details - [Golang-Gin Authentication (Auth0, JWT, Cookie)](https://ronen-niv.medium.com/golang-gin-authentication-auth0-jwt-cookie-1d68d874eb03)
+
