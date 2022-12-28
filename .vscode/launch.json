@@ -7,7 +7,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "/Users/ronenniv/go/src/github.com/ronenniv/webclient",
+            "program": "${cwd}/main.go",
             "env": {
                 "AUTH0_DOMAIN": "dev-0zt06iri.us.auth0.com",
                 "AUTH0_API_IDENTIFIER": "https://api.recipes.io",
