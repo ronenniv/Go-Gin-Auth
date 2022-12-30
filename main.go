@@ -2,21 +2,25 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/sessions"
 	redisStore "github.com/gin-contrib/sessions/redis"
+	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/ronenniv/Go-Gin-Auth/handlers"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.uber.org/zap"
 )
 
 var recipesHandler *handlers.RecipesHandler
 var authHandler *handlers.AuthHandler
+var logger, _ = zap.NewProduction()
 
 func init() {
 	ctx := context.Background()
@@ -24,12 +28,12 @@ func init() {
 	// mongodb
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal("Cannot conenct to mongo", zap.Error(err))
 	}
 	if err = client.Ping(context.TODO(), readpref.Primary()); err != nil {
-		log.Fatal(err)
+		logger.Fatal("Cannot ping to mongo", zap.Error(err))
 	}
-	log.Printf("Connected to MongoDB at %s", os.Getenv("MONGO_URI"))
+	logger.Info("Connected to MongoDB", zap.String("MONGO_URI", os.Getenv("MONGO_URI")))
 
 	collection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("recipes")
 	usersCollection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("users")
@@ -41,25 +45,25 @@ func init() {
 		DB:       0,
 	})
 	status := redisClient.Ping(ctx)
-	log.Printf("redisClient at %s with status %v\n", os.Getenv("REDIS_ADDR"), status)
+	logger.Info("rediClinet Ping", zap.String("REDIS_ADDR", os.Getenv("REDIS_ADDR")), zap.Any("status", *status))
 
-	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient)
-	authHandler = handlers.NewAuthHAndler(usersCollection, ctx)
+	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient, logger)
+	authHandler = handlers.NewAuthHAndler(usersCollection, ctx, logger)
 }
 
 func main() {
 	router := gin.Default()
+	router.Use(ginzap.Ginzap(logger, time.RFC850, true))
+	router.Use(cors.Default())
 	// cookies
 	store, _ := redisStore.NewStore(10, "tcp", os.Getenv("REDIS_ADDR"), "", []byte("secret"))
 	router.Use(sessions.Sessions("recipes_api", store))
 	// end of cookie //
-
-	router.GET("/login", authHandler.SignInHandlerCookie)     // Cookie
-	router.POST("/signout", authHandler.SignOutHandlerCookie) // Cookie
-	router.POST("/adduser", authHandler.AddUser)              // for testing only - to create users
-
-	nonauth := router.Group("/v1")
-	nonauth.GET("/recipes", recipesHandler.ListRecipesHandler)
+	{
+		router.POST("/login", authHandler.SignInHandlerCookie)    // Cookie
+		router.POST("/signout", authHandler.SignOutHandlerCookie) // Cookie
+		router.POST("/adduser", authHandler.AddUser)              // for testing only - to create users
+	}
 	authorized := router.Group("/v1")
 	authorized.Use(authHandler.AuthMiddlewareCookie()) // Cookie
 	{
@@ -68,6 +72,9 @@ func main() {
 		authorized.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
 		authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
 		authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
+		authorized.GET("/recipes", recipesHandler.ListRecipesHandler)
 	}
-	router.Run()
+	if err := router.Run(); err != nil {
+		os.Exit(1)
+	}
 }
