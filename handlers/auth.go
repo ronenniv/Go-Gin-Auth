@@ -45,6 +45,7 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 	// JWT session - create new session
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
+		log.Println(err)
 		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
@@ -55,6 +56,7 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 	filter := bson.M{"username": user.Username, "password": sha.Sum(nil)}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() != nil {
+		log.Println("Incorrect user or password")
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Incorrect user or password"})
 		return
 	}
@@ -64,18 +66,20 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 		Username: user.Username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
-			Issuer:    "test",
 		},
 	}
 	var err error
 	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		c.JSON(http.StatusInternalServerError, models.Message{Error: "key generation error"})
+		return
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	tokenString, err := token.SignedString(key)
 	if err != nil {
+		log.Println(err)
 		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
 		return
 	}
@@ -90,6 +94,7 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 	// add user to mongodb
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
+		log.Println(err)
 		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
@@ -103,9 +108,11 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 		{"username", user.Username}}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() == nil {
+		log.Printf("Error: user %s already exist\n", user.Username)
 		c.JSON(http.StatusBadRequest, models.Message{Message: "user already exit"})
 		return
 	} else if cur.Err() != mongo.ErrNoDocuments {
+		log.Println(cur.Err().Error())
 		c.JSON(http.StatusInternalServerError, models.Message{Error: cur.Err().Error()})
 		return
 	}
@@ -114,10 +121,11 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 		{"password", sha.Sum(nil)}}
 	_, err := h.collection.InsertOne(h.ctx, insert)
 	if err != nil {
+		log.Println(err)
 		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, user.Username)
+	c.JSON(http.StatusOK, models.User{Username: user.Username})
 }
 
 func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
@@ -129,10 +137,12 @@ func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
 			return key.Public(), nil
 		})
 	if err != nil {
+		log.Println(err)
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
 	if tkn == nil || !tkn.Valid {
+		log.Println(err)
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
@@ -140,11 +150,14 @@ func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
 	claims.ExpiresAt = jwt.NewNumericDate(expirationTime)
 	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
+		return
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	tokenString, err := token.SignedString(key)
 	if err != nil {
+		log.Println(err)
 		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
 		return
 	}
@@ -164,13 +177,31 @@ func (handler *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
 			return key.Public(), nil
 		})
 		if err != nil {
+			log.Println(err)
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
 		if !tkn.Valid {
+			log.Println(err)
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
+		c.Next()
+	}
+}
+
+func (handler *AuthHandler) CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Header("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusOK)
+			return
+		}
+
 		c.Next()
 	}
 }

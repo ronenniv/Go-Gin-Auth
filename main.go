@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/ronenniv/Go-Gin-Auth/handlers"
@@ -22,10 +23,10 @@ func init() {
 	// mongodb
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Errorr: cannot conenct ot MongoDB", err)
 	}
 	if err = client.Ping(context.TODO(), readpref.Primary()); err != nil {
-		log.Fatal(err)
+		log.Fatal("Error: cannot ping MongoDB", err)
 	}
 	log.Printf("Connected to MongoDB at %s", os.Getenv("MONGO_URI"))
 
@@ -40,7 +41,7 @@ func init() {
 	})
 	status := redisClient.Ping(ctx)
 	if status.Err() != nil {
-		log.Fatal(status.Err())
+		log.Fatal("Error: ping Redis", status.Err())
 	}
 	log.Printf("redisClient at %s with status %v\n", os.Getenv("REDIS_ADDR"), status)
 
@@ -49,11 +50,15 @@ func init() {
 }
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
-
-	router.GET("/login", authHandler.SignInHandlerJWT) // JWT
-	router.POST("/refresh", authHandler.RefreshHandler)
-	router.POST("/adduser", authHandler.AddUser) // for testing only - to create users
+	// router.Use(authHandler.CORSMiddleware())
+	router.Use(cors.Default())
+	{
+		router.POST("/login", authHandler.SignInHandlerJWT) // JWT
+		router.POST("/refresh", authHandler.RefreshHandler)
+		router.POST("/adduser", authHandler.AddUser) // for testing only - to create users
+	}
 
 	authorized := router.Group("/v1")
 	authorized.Use(authHandler.AuthMiddlewareJWT()) // JWT
