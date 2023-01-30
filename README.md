@@ -17,3 +17,6 @@ docker run -d --name mongodb -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB
 ### Redis
 
 docker run -d -v $(pwd)/conf:/usr/local/etc/redis --name redis -p 6379:6379 redis:latest /usr/local/etc/redis/redis.conf
+
+### Logging
+Set LOG_LEVEL to DEBUG, INFO, or none for Error level only

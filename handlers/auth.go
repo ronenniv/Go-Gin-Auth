@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -15,16 +16,19 @@ import (
 	"github.com/ronenniv/Go-Gin-Auth/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.uber.org/zap"
 )
 
 type AuthHandler struct {
 	collection *mongo.Collection
 	ctx        context.Context
+	logger     *zap.Logger
 }
 
-type Claims struct {
-	Username string `json:"username"`
+type UserClaims struct {
 	jwt.RegisteredClaims
+	// Username string
+	Username string `json:"username"`
 }
 
 type JWTOutput struct {
@@ -34,10 +38,20 @@ type JWTOutput struct {
 
 var key *ecdsa.PrivateKey
 
-func NewAuthHAndler(collection *mongo.Collection, ctx context.Context) *AuthHandler {
+func init() {
+	// we want to create the key only once for all users
+	var err error
+	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func NewAuthHAndler(collection *mongo.Collection, ctx context.Context, logger *zap.Logger) *AuthHandler {
 	return &AuthHandler{
 		collection: collection,
 		ctx:        ctx,
+		logger:     logger,
 	}
 }
 
@@ -45,7 +59,7 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 	// JWT session - create new session
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
-		log.Println(err)
+		h.logger.Error("", zap.Error(err))
 		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
@@ -56,30 +70,33 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 	filter := bson.M{"username": user.Username, "password": sha.Sum(nil)}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() != nil {
-		log.Println("Incorrect user or password")
+		h.logger.Info("username or password not found", zap.Error(cur.Err()))
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Incorrect user or password"})
 		return
 	}
 	// JWT token
 	expirationTime := time.Now().Add(10 * time.Minute)
-	claims := &Claims{
+	claims := &UserClaims{
 		Username: user.Username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 		},
 	}
-	var err error
-	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		log.Println(err)
-		c.JSON(http.StatusInternalServerError, models.Message{Error: "key generation error"})
-		return
+	// we want to create the key only once for all users
+	if key == nil {
+		var err error
+		key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			h.logger.Error("", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, models.Message{Error: "key generation error"})
+			return
+		}
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	// get the string token so can return it in body
 	tokenString, err := token.SignedString(key)
 	if err != nil {
-		log.Println(err)
+		h.logger.Error("", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
 		return
 	}
@@ -87,6 +104,7 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 		Token:   tokenString,
 		Expires: expirationTime,
 	}
+	h.logger.Info("user login", zap.String("username", claims.Username))
 	c.JSON(http.StatusOK, jwtOutput)
 }
 
@@ -94,25 +112,23 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 	// add user to mongodb
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
-		log.Println(err)
+		h.logger.Error("", zap.Error(err))
 		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
-
 	sha := sha256.New()
 	sha.Write([]byte(user.Password))
 	user.Password = string(sha.Sum(nil))
-
-	// insert to mongo
+	// chec if user already exist
 	filter := bson.D{
 		{"username", user.Username}}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() == nil {
-		log.Printf("Error: user %s already exist\n", user.Username)
-		c.JSON(http.StatusBadRequest, models.Message{Message: "user already exit"})
+		h.logger.Info("user already exit", zap.Error(cur.Err()))
+		c.JSON(http.StatusBadRequest, models.Message{Error: "user already exit"})
 		return
 	} else if cur.Err() != mongo.ErrNoDocuments {
-		log.Println(cur.Err().Error())
+		h.logger.Info("", zap.Error(cur.Err()))
 		c.JSON(http.StatusInternalServerError, models.Message{Error: cur.Err().Error()})
 		return
 	}
@@ -121,43 +137,38 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 		{"password", sha.Sum(nil)}}
 	_, err := h.collection.InsertOne(h.ctx, insert)
 	if err != nil {
-		log.Println(err)
+		h.logger.Error("", zap.Error(err))
 		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, models.User{Username: user.Username})
 }
 
-func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
+func (h *AuthHandler) RefreshHandler(c *gin.Context) {
 	// JWT session - refresh/renew session
 	tokenValue := c.GetHeader("Authorization")
-	claims := &Claims{}
+	claims := &UserClaims{}
 	tkn, err := jwt.ParseWithClaims(tokenValue, claims,
 		func(token *jwt.Token) (interface{}, error) {
 			return key.Public(), nil
 		})
 	if err != nil {
-		log.Println(err)
+		h.logger.Error("", zap.Error(err))
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
 	if tkn == nil || !tkn.Valid {
-		log.Println(err)
+		h.logger.Error("", zap.Error(err))
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
 	expirationTime := time.Now().Add(5 * time.Minute)
 	claims.ExpiresAt = jwt.NewNumericDate(expirationTime)
-	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		log.Println(err)
-		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
-		return
-	}
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	// get the string token so can return it in body
 	tokenString, err := token.SignedString(key)
 	if err != nil {
-		log.Println(err)
+		h.logger.Error("", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
 		return
 	}
@@ -168,29 +179,68 @@ func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, jwtOutput)
 }
 
-func (handler *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
+func (h *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
 	// JWT ssession
 	return func(c *gin.Context) {
 		tokenValue := c.GetHeader("Authorization")
-		claims := &Claims{}
-		tkn, err := jwt.ParseWithClaims(tokenValue, claims, func(token *jwt.Token) (interface{}, error) {
+		userClaims := &UserClaims{}
+		token, err := jwt.ParseWithClaims(tokenValue, userClaims, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
 			return key.Public(), nil
 		})
 		if err != nil {
-			log.Println(err)
+			h.logger.Error("", zap.String("username", userClaims.Username), zap.Error(err))
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
-		if !tkn.Valid {
-			log.Println(err)
+		if !token.Valid {
+			h.logger.Error("", zap.Error(err))
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
+		h.logger.Debug("token validated", zap.String("username", userClaims.Username))
 		c.Next()
 	}
 }
 
-func (handler *AuthHandler) CORSMiddleware() gin.HandlerFunc {
+func (h *AuthHandler) LogoutHandlerJWT(c *gin.Context) {
+	// JWT session - refresh/ session with expired time
+	tokenValue := c.GetHeader("Authorization")
+	userClaims := &UserClaims{}
+	token, err := jwt.ParseWithClaims(tokenValue, userClaims,
+		func(token *jwt.Token) (interface{}, error) {
+			return key.Public(), nil
+		})
+	if err != nil {
+		h.logger.Error("", zap.String("username", userClaims.Username), zap.Error(err))
+		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
+		return
+	}
+	if token == nil || !token.Valid {
+		h.logger.Error("", zap.Error(err))
+		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
+		return
+	}
+	expirationTime := time.Now().Add(-1 * time.Minute)
+	userClaims.ExpiresAt = jwt.NewNumericDate(expirationTime)
+	token = jwt.NewWithClaims(jwt.SigningMethodES256, userClaims)
+	// get the string token so can return it in body
+	tokenString, err := token.SignedString(key)
+	if err != nil {
+		h.logger.Error("", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
+		return
+	}
+	jwtOutput := JWTOutput{
+		Token:   tokenString,
+		Expires: expirationTime,
+	}
+	c.JSON(http.StatusOK, jwtOutput)
+}
+
+func (h *AuthHandler) CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Credentials", "true")
