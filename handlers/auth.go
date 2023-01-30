@@ -223,7 +223,7 @@ func (h *AuthHandler) LogoutHandlerJWT(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
-	expirationTime := time.Now().Add(-1 * time.Minute)
+	expirationTime := time.Now() // cuurent time so next use with the token it'll be expired
 	userClaims.ExpiresAt = jwt.NewNumericDate(expirationTime)
 	token = jwt.NewWithClaims(jwt.SigningMethodES256, userClaims)
 	// get the string token so can return it in body
@@ -237,6 +237,7 @@ func (h *AuthHandler) LogoutHandlerJWT(c *gin.Context) {
 		Token:   tokenString,
 		Expires: expirationTime,
 	}
+	h.logger.Debug("invalidated token", zap.String("username", userClaims.Username))
 	c.JSON(http.StatusOK, jwtOutput)
 }
 
