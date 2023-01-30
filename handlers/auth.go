@@ -135,28 +135,23 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 func (h *AuthHandler) RefreshHandler(c *gin.Context) {
 	// JWT session - refresh/renew session
 	tokenValue := c.GetHeader("Authorization")
-	claims := &UserClaims{}
-	token, err := jwt.ParseWithClaims(tokenValue, claims,
+	userClaims := &UserClaims{}
+	token, err := jwt.ParseWithClaims(tokenValue, userClaims,
 		func(token *jwt.Token) (interface{}, error) {
 			return key.Public(), nil
 		})
-	if err != nil {
-		h.logger.Error("", zap.Error(err))
+	if err != nil || token == nil || !token.Valid {
+		h.logger.Error("invalid token", zap.String("username", userClaims.Username), zap.Error(err))
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
-	if token == nil || !token.Valid {
-		h.logger.Error("invalid token", zap.Error(err))
-		c.AbortWithStatus(http.StatusUnauthorized)
-		return
-	}
 	expirationTime := time.Now().Add(5 * time.Minute)
-	claims.ExpiresAt = jwt.NewNumericDate(expirationTime)
-	token = jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	userClaims.ExpiresAt = jwt.NewNumericDate(expirationTime)
+	token = jwt.NewWithClaims(jwt.SigningMethodES256, userClaims)
 	// get the string token so can return it in body
 	tokenString, err := token.SignedString(key)
 	if err != nil {
-		h.logger.Error("", zap.Error(err))
+		h.logger.Error("", zap.String("username", userClaims.Username), zap.Error(err))
 		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
 		return
 	}
@@ -175,14 +170,10 @@ func (h *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
 		token, err := jwt.ParseWithClaims(tokenValue, userClaims, func(token *jwt.Token) (interface{}, error) {
 			return key.Public(), nil
 		})
-		if err != nil {
-			h.logger.Error("", zap.String("username", userClaims.Username), zap.Error(err))
-			c.AbortWithStatus(http.StatusUnauthorized)
-			return
-		}
-		if token == nil || !token.Valid {
-			h.logger.Error("invalid token", zap.Error(err))
-			c.AbortWithStatus(http.StatusUnauthorized)
+		if err != nil || token == nil || !token.Valid {
+			h.logger.Error("invalid token", zap.String("username", userClaims.Username), zap.Error(err))
+			c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
+			c.Abort()
 			return
 		}
 		h.logger.Debug("token validated", zap.String("username", userClaims.Username))
@@ -201,13 +192,8 @@ func (h *AuthHandler) LogoutHandlerJWT(c *gin.Context) {
 		func(token *jwt.Token) (interface{}, error) {
 			return key.Public(), nil
 		})
-	if err != nil {
-		h.logger.Error("", zap.String("username", userClaims.Username), zap.Error(err))
-		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
-		return
-	}
-	if token == nil || !token.Valid {
-		h.logger.Error("invalid token", zap.Error(err))
+	if err != nil || token == nil || !token.Valid {
+		h.logger.Error("invalid token", zap.String("username", userClaims.Username), zap.Error(err))
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
@@ -240,7 +226,6 @@ func (h *AuthHandler) CORSMiddleware() gin.HandlerFunc {
 			c.AbortWithStatus(http.StatusOK)
 			return
 		}
-
 		c.Next()
 	}
 }
