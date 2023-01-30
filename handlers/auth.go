@@ -27,7 +27,6 @@ type AuthHandler struct {
 
 type UserClaims struct {
 	jwt.RegisteredClaims
-	// Username string
 	Username string `json:"username"`
 }
 
@@ -66,11 +65,11 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 
 	sha := sha256.New()
 	sha.Write([]byte(user.Password))
-	// fetch from mongo
+	// check if user and password existing in DB
 	filter := bson.M{"username": user.Username, "password": sha.Sum(nil)}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() != nil {
-		h.logger.Info("username or password not found", zap.Error(cur.Err()))
+		h.logger.Info("username or password not found", zap.String("username", user.Username), zap.Error(cur.Err()))
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Incorrect user or password"})
 		return
 	}
@@ -81,16 +80,6 @@ func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 		},
-	}
-	// we want to create the key only once for all users
-	if key == nil {
-		var err error
-		key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			h.logger.Error("", zap.Error(err))
-			c.JSON(http.StatusInternalServerError, models.Message{Error: "key generation error"})
-			return
-		}
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	// get the string token so can return it in body
