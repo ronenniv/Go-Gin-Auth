@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/ronenniv/Go-Gin-Auth/handlers"
+	"github.com/ronenniv/Go-Gin-Auth/logger"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -20,20 +21,23 @@ import (
 
 var recipesHandler *handlers.RecipesHandler
 var authHandler *handlers.AuthHandler
-var logger, _ = zap.NewProduction()
+var ginLogger *zap.Logger
 
 func init() {
 	ctx := context.Background()
 
+	ginLogger = logger.InitLogger()
+
 	// mongodb
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
-		logger.Fatal("Cannot conenct to mongo", zap.Error(err))
+		ginLogger.Fatal("Cannot connect to MongoDB", zap.Error(err))
 	}
+	ginLogger.Info("Connected to MongoDB at URI", zap.String("MONGO_URI", os.Getenv("MONGO_URI")))
 	if err = client.Ping(context.TODO(), readpref.Primary()); err != nil {
-		logger.Fatal("Cannot ping to mongo", zap.Error(err))
+		ginLogger.Fatal("Cannot ping to mongo", zap.Error(err))
 	}
-	logger.Info("Connected to MongoDB", zap.String("MONGO_URI", os.Getenv("MONGO_URI")))
+	ginLogger.Info("Pinged to MongoDB", zap.String("MONGO_URI", os.Getenv("MONGO_URI")))
 
 	collection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("recipes")
 	usersCollection := client.Database(os.Getenv("MONGO_DATABASE")).Collection("users")
@@ -45,34 +49,38 @@ func init() {
 		DB:       0,
 	})
 	status := redisClient.Ping(ctx)
-	logger.Info("rediClinet Ping", zap.String("REDIS_ADDR", os.Getenv("REDIS_ADDR")), zap.Any("status", *status))
+	ginLogger.Info("rediClient Ping", zap.String("REDIS_ADDR", os.Getenv("REDIS_ADDR")), zap.Any("status", *status))
 
-	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient, logger)
-	authHandler = handlers.NewAuthHAndler(usersCollection, ctx, logger)
+	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient, ginLogger)
+	authHandler = handlers.NewAuthHAndler(usersCollection, ctx, ginLogger)
 }
 
 func main() {
 	router := gin.Default()
-	router.Use(ginzap.Ginzap(logger, time.RFC850, true))
-	router.Use(cors.Default())
-	// cookies
-	store, _ := redisStore.NewStore(10, "tcp", os.Getenv("REDIS_ADDR"), "", []byte("secret"))
-	router.Use(sessions.Sessions("recipes_api", store))
-	// end of cookie //
+	router.Use(ginzap.Ginzap(logger.InitLogger(), time.RFC850, true)) // middleware for logging with Zap
+	router.Use(cors.Default())                                        // middleware to allows all origins
 	{
-		router.POST("/login", authHandler.SignInHandlerCookie)    // Cookie
-		router.POST("/signout", authHandler.SignOutHandlerCookie) // Cookie
-		router.POST("/adduser", authHandler.AddUser)              // for testing only - to create users
-	}
-	authorized := router.Group("/v1")
-	authorized.Use(authHandler.AuthMiddlewareCookie()) // Cookie
-	{
-		authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
-		authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
-		authorized.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
-		authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
-		authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
-		authorized.GET("/recipes", recipesHandler.ListRecipesHandler)
+		router.POST("/adduser", authHandler.AddUser) // for testing only - to create new users
+
+		// cookies - create store for cookies in redis
+		store, _ := redisStore.NewStore(10, "tcp", os.Getenv("REDIS_ADDR"), "", []byte("secret"))
+		router.Use(sessions.Sessions("recipes_api", store))
+		// end of cookie //
+		{
+			router.POST("/login", authHandler.SignInHandlerCookie) // Cookie
+
+			authorized := router.Group("/v1")
+			authorized.Use(authHandler.AuthMiddlewareCookie()) // Cookie
+			{
+				authorized.POST("/recipes", recipesHandler.NewRecipeHandler)
+				authorized.PUT("/recipes/:id", recipesHandler.UpdateRecipeHandler)
+				authorized.DELETE("/recipes/:id", recipesHandler.DelRecipeHandler)
+				authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
+				authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
+				authorized.GET("/recipes", recipesHandler.ListRecipesHandler)
+				authorized.POST("/logout", authHandler.LogoutHandlerCookie) // Cookie
+			}
+		}
 	}
 	if err := router.Run(); err != nil {
 		os.Exit(1)

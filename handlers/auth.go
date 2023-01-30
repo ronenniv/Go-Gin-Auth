@@ -35,10 +35,10 @@ func (h *AuthHandler) SignInHandlerCookie(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
 		return
 	}
-
+	// encrypt password
 	sha := sha256.New()
 	sha.Write([]byte(user.Password))
-	// fetch from mongo
+	// fetch from mongo the user and password
 	filter := bson.M{"username": user.Username, "password": sha.Sum(nil)}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() != nil {
@@ -46,7 +46,6 @@ func (h *AuthHandler) SignInHandlerCookie(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, models.Message{Message: "Incorrect user or password"})
 		return
 	}
-
 	// session cookie
 	sessionToken := xid.New().String()
 	session := sessions.Default(c)
@@ -62,6 +61,7 @@ func (h *AuthHandler) SignInHandlerCookie(c *gin.Context) {
 	c.JSON(http.StatusOK, models.User{Username: user.Username})
 }
 
+// AddUser create a new user
 func (h *AuthHandler) AddUser(c *gin.Context) {
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
@@ -70,16 +70,15 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 		return
 	}
 
+	// encrypt password
 	sha := sha256.New()
 	sha.Write([]byte(user.Password))
-	user.Password = string(sha.Sum(nil))
-
-	// insert to mongo
+	// check if user already exist
 	filter := bson.D{
 		{"username", user.Username}}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() == nil {
-		h.logger.Info("", zap.Error(cur.Err()))
+		h.logger.Info("user already exit", zap.Error(cur.Err()))
 		c.JSON(http.StatusBadRequest, models.Message{Message: "user already exit"})
 		return
 	} else if cur.Err() != mongo.ErrNoDocuments {
@@ -87,16 +86,17 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.Message{Message: cur.Err().Error()})
 		return
 	}
+	// insert the user and password
 	insert := bson.D{
 		{"username", user.Username},
 		{"password", sha.Sum(nil)}}
 	_, err := h.collection.InsertOne(h.ctx, insert)
 	if err != nil {
-		h.logger.Info("", zap.Error(err))
+		h.logger.Info("failed to insert", zap.Error(err))
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
 		return
 	}
-	h.logger.Info("user added", zap.String("", user.Username))
+	h.logger.Info("user added", zap.String("username", user.Username))
 	c.JSON(http.StatusOK, user.Username)
 }
 
@@ -105,17 +105,17 @@ func (h *AuthHandler) AuthMiddlewareCookie() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := sessions.Default(c)
 		sessionToken := session.Get("token")
-		h.logger.Debug("cookie username", zap.Any("", session.Get("username")))
+		h.logger.Debug("cookie", zap.Any("username", session.Get("username")))
 		if sessionToken == nil {
-			h.logger.Info("user not logged in", zap.Any("", session.Get("username")))
-			c.JSON(http.StatusForbidden, models.Message{Error: "Not logged in"})
+			h.logger.Info("user not logged in", zap.Any("username", session.Get("username")))
+			c.JSON(http.StatusForbidden, models.Message{Error: "User not logged in"})
 			c.Abort()
 		}
 		c.Next()
 	}
 }
 
-func (h *AuthHandler) SignOutHandlerCookie(c *gin.Context) {
+func (h *AuthHandler) LogoutHandlerCookie(c *gin.Context) {
 	session := sessions.Default(c)
 	session.Clear()
 	if err := session.Save(); err != nil {
@@ -123,6 +123,6 @@ func (h *AuthHandler) SignOutHandlerCookie(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.Message{Error: err.Error()})
 		return
 	}
-	h.logger.Info("user logged out", zap.Any("", session.Get("username")))
-	c.JSON(http.StatusOK, models.Message{Message: "Signed out"})
+	h.logger.Info("user logged out", zap.Any("username", session.Get("username")))
+	c.JSON(http.StatusOK, models.Message{Message: "signed out"})
 }

@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const redisTTL = time.Hour * 12 // Redis TTL 12 hours
+
 type RecipesHandler struct {
 	collection  *mongo.Collection
 	ctx         context.Context
@@ -54,7 +56,7 @@ func (rh *RecipesHandler) ListRecipesHandler(c *gin.Context) {
 
 		// update redis with recipes
 		data, _ := json.Marshal(recipes)
-		rh.redisClient.Set(rh.ctx, "recipes", string(data), 0)
+		rh.redisClient.Set(rh.ctx, "recipes", string(data), redisTTL)
 
 		c.JSON(http.StatusOK, recipes)
 	} else if err != nil {
@@ -166,7 +168,7 @@ func (rh *RecipesHandler) UpdateRecipeHandler(c *gin.Context) {
 	rh.logger.Debug("Remove recipes from Redis")
 
 	data, _ := json.Marshal(&recipe)
-	rh.redisClient.Set(rh.ctx, id, string(data), 0)
+	rh.redisClient.Set(rh.ctx, id, string(data), redisTTL)
 	rh.logger.Debug("update redis", zap.String("id", id))
 
 	c.JSON(http.StatusOK, recipe)
@@ -204,7 +206,7 @@ func (rh *RecipesHandler) GetRecipeHandler(c *gin.Context) {
 		}
 		// add entry to redis
 		data, _ := json.Marshal(&recipe)
-		rh.redisClient.Set(rh.ctx, id, string(data), 0)
+		rh.redisClient.Set(rh.ctx, id, string(data), redisTTL)
 		rh.logger.Debug("add to redis", zap.ByteString("data", data))
 	} else {
 		// id exist in redis
@@ -239,7 +241,7 @@ func (rh *RecipesHandler) NewRecipeHandler(c *gin.Context) {
 	rh.logger.Debug("Remove recipes from Redis")
 	id, _ := recipe.ID.MarshalText()
 	data, _ := json.Marshal(&recipe)
-	rh.redisClient.Set(rh.ctx, string(id), string(data), 0)
+	rh.redisClient.Set(rh.ctx, string(id), string(data), redisTTL)
 	rh.logger.Debug("add to redis", zap.ByteString("id", id))
 
 	c.JSON(http.StatusOK, recipe)

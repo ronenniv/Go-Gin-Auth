@@ -13,7 +13,8 @@
                 "AUTH0_API_IDENTIFIER": "https://api.recipes.io",
                 "MONGO_DATABASE" : "demo",
                 "MONGO_URI": "mongodb://admin:password@localhost:27017",
-                "REDIS_ADDR": "localhost:6379"
+                "REDIS_ADDR": "localhost:6379",
+                "LOG_LEVEL": "DEBUG"
               },
         }
     ]
