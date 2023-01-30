@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -137,7 +136,7 @@ func (h *AuthHandler) RefreshHandler(c *gin.Context) {
 	// JWT session - refresh/renew session
 	tokenValue := c.GetHeader("Authorization")
 	claims := &UserClaims{}
-	tkn, err := jwt.ParseWithClaims(tokenValue, claims,
+	token, err := jwt.ParseWithClaims(tokenValue, claims,
 		func(token *jwt.Token) (interface{}, error) {
 			return key.Public(), nil
 		})
@@ -146,14 +145,14 @@ func (h *AuthHandler) RefreshHandler(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
-	if tkn == nil || !tkn.Valid {
-		h.logger.Error("", zap.Error(err))
-		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
+	if token == nil || !token.Valid {
+		h.logger.Error("invalid token", zap.Error(err))
+		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
 	expirationTime := time.Now().Add(5 * time.Minute)
 	claims.ExpiresAt = jwt.NewNumericDate(expirationTime)
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token = jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	// get the string token so can return it in body
 	tokenString, err := token.SignedString(key)
 	if err != nil {
@@ -174,9 +173,6 @@ func (h *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
 		tokenValue := c.GetHeader("Authorization")
 		userClaims := &UserClaims{}
 		token, err := jwt.ParseWithClaims(tokenValue, userClaims, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
 			return key.Public(), nil
 		})
 		if err != nil {
@@ -184,8 +180,8 @@ func (h *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
-		if !token.Valid {
-			h.logger.Error("", zap.Error(err))
+		if token == nil || !token.Valid {
+			h.logger.Error("invalid token", zap.Error(err))
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
@@ -195,7 +191,10 @@ func (h *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
 }
 
 func (h *AuthHandler) LogoutHandlerJWT(c *gin.Context) {
-	// JWT session - refresh/ session with expired time
+	// The idea with JWT that it's stateless session so the session is not stored
+	// and as such there is no logout. The client should refresh the session to keep the active session
+	// one way to logout is to change the expiration time and return new session to the client
+	// JWT session - refresh session with expired time
 	tokenValue := c.GetHeader("Authorization")
 	userClaims := &UserClaims{}
 	token, err := jwt.ParseWithClaims(tokenValue, userClaims,
@@ -208,7 +207,7 @@ func (h *AuthHandler) LogoutHandlerJWT(c *gin.Context) {
 		return
 	}
 	if token == nil || !token.Valid {
-		h.logger.Error("", zap.Error(err))
+		h.logger.Error("invalid token", zap.Error(err))
 		c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
 		return
 	}
@@ -226,7 +225,7 @@ func (h *AuthHandler) LogoutHandlerJWT(c *gin.Context) {
 		Token:   tokenString,
 		Expires: expirationTime,
 	}
-	h.logger.Debug("invalidated token", zap.String("username", userClaims.Username))
+	h.logger.Debug("update token with expiration to now", zap.String("username", userClaims.Username))
 	c.JSON(http.StatusOK, jwtOutput)
 }
 

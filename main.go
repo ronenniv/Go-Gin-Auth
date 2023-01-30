@@ -24,6 +24,7 @@ var ginLogger *zap.Logger
 func init() {
 	ctx := context.Background()
 
+	// logger
 	ginLogger = logger.InitLogger()
 
 	// mongodb
@@ -49,6 +50,7 @@ func init() {
 	status := redisClient.Ping(ctx)
 	ginLogger.Info("rediClient Ping", zap.String("REDIS_ADDR", os.Getenv("REDIS_ADDR")), zap.Any("status", *status))
 
+	// handlers
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient, ginLogger)
 	authHandler = handlers.NewAuthHAndler(usersCollection, ctx, ginLogger)
 }
@@ -56,17 +58,17 @@ func init() {
 func main() {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
-	router.Use(ginzap.Ginzap(logger.InitLogger(), time.RFC850, true)) // middleware for logging with Zap
-	router.Use(cors.Default())
+	router.Use(ginzap.Ginzap(ginLogger, time.RFC850, true)) // middleware for logging with Zap
+	router.Use(cors.Default())                              // middleware to allows all origins
 	{
 		router.POST("/login", authHandler.SignInHandlerJWT) // JWT
 		router.POST("/adduser", authHandler.AddUser)        // for testing only - to create users
 	}
-	admin := router.Group("")
+	admin := router.Group("/admin")
 	admin.Use(authHandler.AuthMiddlewareJWT()) // JWT
 	{
 		admin.POST("/refresh", authHandler.RefreshHandler)
-		admin.POST("/logout", authHandler.LogoutHandlerJWT)
+		admin.POST("/logout", authHandler.LogoutHandlerJWT) // shouldbe be used as JWT is staeless
 	}
 	authorized := router.Group("/v1")
 	authorized.Use(authHandler.AuthMiddlewareJWT()) // JWT
@@ -78,5 +80,7 @@ func main() {
 		authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
 		authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
 	}
-	router.Run()
+	if err := router.Run(); err != nil {
+		os.Exit(1)
+	}
 }
