@@ -32,7 +32,7 @@ func (h *AuthHandler) SignInHandlerCookie(c *gin.Context) {
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		h.logger.Error("", zap.Error(err))
-		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
+		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
 	// encrypt password
@@ -66,26 +66,25 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		h.logger.Info("", zap.Error(err))
-		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
+		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
-
-	// encrypt password
-	sha := sha256.New()
-	sha.Write([]byte(user.Password))
 	// check if user already exist
 	filter := bson.D{
 		{"username", user.Username}}
 	cur := h.collection.FindOne(h.ctx, filter)
 	if cur.Err() == nil {
 		h.logger.Info("user already exit", zap.Error(cur.Err()))
-		c.JSON(http.StatusBadRequest, models.Message{Message: "user already exit"})
+		c.JSON(http.StatusBadRequest, models.Message{Error: "user already exit"})
 		return
 	} else if cur.Err() != mongo.ErrNoDocuments {
 		h.logger.Info("", zap.Error(cur.Err()))
-		c.JSON(http.StatusInternalServerError, models.Message{Message: cur.Err().Error()})
+		c.JSON(http.StatusInternalServerError, models.Message{Error: cur.Err().Error()})
 		return
 	}
+	// encrypt password
+	sha := sha256.New()
+	sha.Write([]byte(user.Password))
 	// insert the user and password
 	insert := bson.D{
 		{"username", user.Username},
@@ -93,7 +92,7 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 	_, err := h.collection.InsertOne(h.ctx, insert)
 	if err != nil {
 		h.logger.Info("failed to insert", zap.Error(err))
-		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
+		c.JSON(http.StatusBadRequest, models.Message{Error: err.Error()})
 		return
 	}
 	h.logger.Info("user added", zap.String("username", user.Username))

@@ -26,6 +26,7 @@ var ginLogger *zap.Logger
 func init() {
 	ctx := context.Background()
 
+	// logger
 	ginLogger = logger.InitLogger()
 
 	// mongodb
@@ -51,6 +52,7 @@ func init() {
 	status := redisClient.Ping(ctx)
 	ginLogger.Info("rediClient Ping", zap.String("REDIS_ADDR", os.Getenv("REDIS_ADDR")), zap.Any("status", *status))
 
+	// handlers
 	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient, ginLogger)
 	authHandler = handlers.NewAuthHAndler(usersCollection, ctx, ginLogger)
 }
@@ -68,6 +70,11 @@ func main() {
 		// end of cookie //
 		{
 			router.POST("/login", authHandler.SignInHandlerCookie) // Cookie
+			admin := router.Group("/admin")
+			admin.Use(authHandler.AuthMiddlewareCookie()) // Cookie
+			{
+				admin.POST("/logout", authHandler.LogoutHandlerCookie) // Cookie
+			}
 
 			authorized := router.Group("/v1")
 			authorized.Use(authHandler.AuthMiddlewareCookie()) // Cookie
@@ -78,7 +85,6 @@ func main() {
 				authorized.GET("/recipes/search", recipesHandler.SearchRecipesHandler)
 				authorized.GET("/recipes/:id", recipesHandler.GetRecipeHandler)
 				authorized.GET("/recipes", recipesHandler.ListRecipesHandler)
-				authorized.POST("/logout", authHandler.LogoutHandlerCookie) // Cookie
 			}
 		}
 	}
