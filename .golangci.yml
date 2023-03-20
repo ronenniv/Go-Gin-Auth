@@ -1,0 +1,51 @@
+run:
+  tests: false
+  skip-dirs:
+    - .vscode
+    - .circleci
+    - .github
+    - data
+    - conf
+  skip-files:
+    - makefile
+    - LICENSE
+    - README.md
+issues:
+  exclude-rules:
+    - path: main.go
+      linters:
+        - gochecknoglobals
+        - gochecknoinits
+        - wsl
+    - path: handlers/auth.go
+      linters:
+        - govet
+    - path: handlers/handler.go
+      linters:
+        - errchkjson
+        - govet
+        - nestif  # TODO: remove this linter and fix the issues
+        - goerr113
+        - wsl
+linters:
+  enable-all: true
+  disable:
+    # deprecated linters
+    - exhaustivestruct
+    - structcheck
+    - varcheck
+    - ifshort
+    - interfacer
+    - deadcode
+    - maligned
+    - scopelint
+    - golint
+    - nosnakecase
+    # generics linters
+    - rowserrcheck
+    - structcheck
+    - wastedassign
+    # custom linters
+    - exhaustruct
+    - gofumpt
+    - varnamelen

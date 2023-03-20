@@ -10,9 +10,10 @@ import (
 	redisStore "github.com/gin-contrib/sessions/redis"
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/ronenniv/Go-Gin-Auth/handlers"
 	"github.com/ronenniv/Go-Gin-Auth/logger"
+	"github.com/ronenniv/Go-Gin-Auth/types"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -24,12 +25,13 @@ var authHandler *handlers.AuthHandler
 var ginLogger *zap.Logger
 
 func init() {
-	ctx := context.Background()
-
 	// logger
 	ginLogger = logger.InitLogger()
 
 	// mongodb
+	ctx, cancel := context.WithTimeout(context.Background(), types.MongoCtxTimeout)
+	defer cancel()
+
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
 		ginLogger.Fatal("Cannot connect to MongoDB", zap.Error(err))
@@ -53,8 +55,8 @@ func init() {
 	ginLogger.Info("rediClient Ping", zap.String("REDIS_ADDR", os.Getenv("REDIS_ADDR")), zap.Any("status", *status))
 
 	// handlers
-	recipesHandler = handlers.NewRecipesHandler(ctx, collection, redisClient, ginLogger)
-	authHandler = handlers.NewAuthHAndler(usersCollection, ctx, ginLogger)
+	recipesHandler = handlers.NewRecipesHandler(collection, redisClient, ginLogger)
+	authHandler = handlers.NewAuthHAndler(usersCollection, ginLogger)
 }
 
 func main() {
@@ -65,7 +67,8 @@ func main() {
 		router.POST("/adduser", authHandler.AddUser) // for testing only - to create new users
 
 		// cookies - create store for cookies in redis
-		store, _ := redisStore.NewStore(10, "tcp", os.Getenv("REDIS_ADDR"), "", []byte("secret"))
+		const maxIdleConnections = 10
+		store, _ := redisStore.NewStore(maxIdleConnections, "tcp", os.Getenv("REDIS_ADDR"), "", []byte("secret"))
 		router.Use(sessions.Sessions("recipes_api", store))
 		// end of cookie //
 		{

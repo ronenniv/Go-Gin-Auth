@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	LOG_LEVEL = "LOG_LEVEL"
+	logLevel = "LOG_LEVEL"
 )
 
 func InitLogger() *zap.Logger {
 	var loggingLevel zapcore.Level
 
-	switch os.Getenv(LOG_LEVEL) {
+	switch os.Getenv(logLevel) {
 	case "DEBUG":
 		loggingLevel = zap.DebugLevel
 	case "INFO":
@@ -46,5 +46,6 @@ func InitLogger() *zap.Logger {
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
+
 	return logger
 }
