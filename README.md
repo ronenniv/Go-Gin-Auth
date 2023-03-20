@@ -1,6 +1,6 @@
 Mongo
 
-docker run -d --name mongodb -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password -p 27017:27017 -v /Users/ronenniv/go/src/github.com/ronenniv/webclient/data:/data/db mongo:latest
+docker run -d --name mongodb -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password -p 27017:27017 -v $PWD/data:/data/db mongo:latest
 
 Redis
 

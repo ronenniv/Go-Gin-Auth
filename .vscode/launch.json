@@ -7,13 +7,16 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "/Users/ronenniv/go/src/github.com/ronenniv/webclient",
+            "program": "${cwd}/main.go",
             "env": {
                 "AUTH0_DOMAIN": "dev-0zt06iri.us.auth0.com",
-                "AUTH0_API_IDENTIFIER": "https://api.recipes.io",
+                "AUTH0_CLIENTID": "hS3kPpMuUGT6knVbujIFS3LdZn0dwNzw",
+                "AUTH0_CLIENT_SECRET": "XG8MDOdR7yzakqFkKEJIDsPNXEXxcPsx3U_LrJ8uT86zTPlbszRKHbzUBCZliBPu",
+                "AUTH0_AUDIENCE": "https://api.recipes.io",
                 "MONGO_DATABASE" : "demo",
                 "MONGO_URI": "mongodb://admin:password@localhost:27017",
-                "REDIS_ADDR": "localhost:6379"
+                "REDIS_ADDR": "localhost:6379",
+                "LOG_LEVEL": "DEBUG"
               },
         }
     ]

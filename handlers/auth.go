@@ -2,34 +2,35 @@ package handlers
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/sha256"
-	"log"
+	"errors"
 	"net/http"
-	"os"
 	"time"
 
-	"github.com/auth0-community/go-auth0"
-	"github.com/dgrijalva/jwt-go/v4"
-	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"github.com/ronenniv/webclient/models"
-	"github.com/rs/xid"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/ronenniv/Go-Gin-Auth/models"
+	"github.com/ronenniv/Go-Gin-Auth/types"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"gopkg.in/square/go-jose.v2"
+	"go.uber.org/zap"
 )
 
 type AuthHandler struct {
 	collection *mongo.Collection
-	ctx        context.Context
+	logger     *zap.Logger
 }
 
-type Claims struct {
+// CustomClaims contains custom data we want from the token.
+type CustomClaims struct {
+	jwt.RegisteredClaims
 	Username string `json:"username"`
-	jwt.StandardClaims
+}
+
+// Validate does nothing for this example, but we need
+// it to satisfy validator.CustomClaims interface.
+func (c CustomClaims) Validate(ctx context.Context) error {
+	return nil
 }
 
 type JWTOutput struct {
@@ -37,89 +38,18 @@ type JWTOutput struct {
 	Expires time.Time `json:"expires"`
 }
 
-var key *ecdsa.PrivateKey
-
-func NewAuthHAndler(collection *mongo.Collection, ctx context.Context) *AuthHandler {
+func NewAuthHAndler(collection *mongo.Collection, logger *zap.Logger) *AuthHandler {
 	return &AuthHandler{
 		collection: collection,
-		ctx:        ctx,
+		logger:     logger,
 	}
-}
-
-func (h *AuthHandler) SignInHandlerCookie(c *gin.Context) {
-	var user models.User
-	if err := c.ShouldBindJSON(&user); err != nil {
-		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
-		return
-	}
-
-	sha := sha256.New()
-	sha.Write([]byte(user.Password))
-	// fetch from mongo
-	filter := bson.M{"username": user.Username, "password": sha.Sum(nil)}
-	cur := h.collection.FindOne(h.ctx, filter)
-	if cur.Err() != nil {
-		c.JSON(http.StatusUnauthorized, models.Message{Message: "Incorrect user or password"})
-		return
-	}
-
-	// session cookie
-	sessionToken := xid.New().String()
-	session := sessions.Default(c)
-	session.Set("username", user.Username)
-	session.Set("token", sessionToken)
-	session.Options(sessions.Options{MaxAge: 10 * 60}) // 10 minutes age
-	session.Save()
-	c.JSON(http.StatusOK, models.Message{Message: "User signed in"})
-}
-
-func (h *AuthHandler) SignInHandlerJWT(c *gin.Context) {
-	var user models.User
-	if err := c.ShouldBindJSON(&user); err != nil {
-		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
-		return
-	}
-
-	sha := sha256.New()
-	sha.Write([]byte(user.Password))
-	// fetch from mongo
-	filter := bson.M{"username": user.Username, "password": sha.Sum(nil)}
-	cur := h.collection.FindOne(h.ctx, filter)
-	if cur.Err() != nil {
-		c.JSON(http.StatusUnauthorized, models.Message{Message: "Incorrect user or password"})
-		return
-	}
-	// JWT token
-	expirationTime := time.Now().Add(10 * time.Minute)
-	claims := &Claims{
-		Username: user.Username,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: jwt.At(expirationTime),
-		},
-	}
-	var err error
-	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	tokenString, err := token.SignedString(key)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.Message{Message: err.Error()})
-		return
-	}
-	jwtOutput := JWTOutput{
-		Token:   tokenString,
-		Expires: expirationTime,
-	}
-	c.JSON(http.StatusOK, jwtOutput)
 }
 
 func (h *AuthHandler) AddUser(c *gin.Context) {
 	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
+
 		return
 	}
 
@@ -130,113 +60,123 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 	// insert to mongo
 	filter := bson.D{
 		{"username", user.Username}}
-	cur := h.collection.FindOne(h.ctx, filter)
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), types.MongoCtxTimeout)
+	defer cancel1()
+
+	cur := h.collection.FindOne(ctx1, filter)
 	if cur.Err() == nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: "user already exit"})
+
 		return
-	} else if cur.Err() != mongo.ErrNoDocuments {
+	} else if !errors.Is(cur.Err(), mongo.ErrNoDocuments) {
 		c.JSON(http.StatusInternalServerError, models.Message{Message: cur.Err().Error()})
+
 		return
 	}
+
 	insert := bson.D{
 		{"username", user.Username},
 		{"password", sha.Sum(nil)}}
-	_, err := h.collection.InsertOne(h.ctx, insert)
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), types.MongoCtxTimeout)
+	defer cancel2()
+
+	_, err := h.collection.InsertOne(ctx2, insert)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.Message{Message: err.Error()})
+
 		return
 	}
+
 	c.JSON(http.StatusOK, user.Username)
 }
 
-func (handler *AuthHandler) RefreshHandler(c *gin.Context) {
-	tokenValue := c.GetHeader("Authorization")
-	claims := &Claims{}
-	tkn, err := jwt.ParseWithClaims(tokenValue, claims,
-		func(token *jwt.Token) (interface{}, error) {
-			return key, nil
-		})
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, models.Message{Message: err.Error()})
-		return
-	}
-	if tkn == nil || !tkn.Valid {
-		c.JSON(http.StatusUnauthorized, models.Message{Message: "Invalid Token"})
-		return
-	}
-	expirationTime := time.Now().Add(5 * time.Minute)
-	claims.ExpiresAt = jwt.At(expirationTime)
-	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		log.Fatal(err)
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	tokenString, err := token.SignedString(key)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.Message{Message: err.Error()})
-		return
-	}
-	jwtOutput := JWTOutput{
-		Token:   tokenString,
-		Expires: expirationTime,
-	}
-	c.JSON(http.StatusOK, jwtOutput)
-}
+// var (
+// 	// The signing key for the token.
+// 	signingKey = []byte(os.Getenv("AUTH0_CLIENT_SECRET"))
 
-func (handler *AuthHandler) AuthMiddlewareAuth0() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var auth0Domain = "https://" + os.Getenv("AUTH0_DOMAIN") + "/"
-		client := auth0.NewJWKClient(auth0.JWKClientOptions{URI: auth0Domain + ".well-known/jwks.json"}, nil)
-		configuration := auth0.NewConfiguration(client, []string{os.Getenv("AUTH0_API_IDENTIFIER")}, auth0Domain, jose.RS256)
-		validator := auth0.NewValidator(configuration, nil)
-		_, err := validator.ValidateRequest(c.Request)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, models.Message{Error: "Invalid Token"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
-}
+// 	// The issuer of our token.
+// 	// issuer = os.Getenv("AUTH0_DOMAIN")
 
-func (handler *AuthHandler) AuthMiddlewareJWT() gin.HandlerFunc {
-	// JWT ssession
-	return func(c *gin.Context) {
-		tokenValue := c.GetHeader("Authorization")
-		claims := &Claims{}
+// 	// The audience of our token.
+// 	audience = []string{os.Getenv("AUTH0_AUDIENCE")}
 
-		tkn, err := jwt.ParseWithClaims(tokenValue, claims, func(token *jwt.Token) (interface{}, error) {
-			return key, nil
-		})
-		if err != nil {
-			c.AbortWithStatus(http.StatusUnauthorized)
-			return
-		}
-		if !tkn.Valid {
-			c.AbortWithStatus(http.StatusUnauthorized)
-			return
-		}
-		c.Next()
-	}
-}
+// 	// Our token must be signed using this data.
+// 	keyFunc = func(ctx context.Context) (interface{}, error) {
+// 		return signingKey, nil
+// 	}
 
-func (handler *AuthHandler) AuthMiddlewareCookie() gin.HandlerFunc {
-	// Cookie session
-	return func(c *gin.Context) {
-		session := sessions.Default(c)
-		sessionToken := session.Get("token")
-		log.Printf("cookie username=%s", session.Get("username"))
-		if sessionToken == nil {
-			c.JSON(http.StatusForbidden, models.Message{Error: "Not logged in"})
-			c.Abort()
-		}
-		c.Next()
-	}
-}
+// 	// We want this struct to be filled in with
+// 	// our custom claims from the token.
+// 	customClaims = func() validator.CustomClaims {
+// 		return &CustomClaims{}
+// 	}
+// )
 
-func (handler *AuthHandler) SignOutHandlerCookie(c *gin.Context) {
-	session := sessions.Default(c)
-	session.Clear()
-	session.Save()
-	c.JSON(http.StatusOK, models.Message{Message: "Signed out"})
-}
+// // CustomClaimsExample contains custom data we want from the token.
+// type CustomClaimsExample struct {
+// Name         string `json:"name"`
+// Username     string `json:"username"`
+// ShouldReject bool   `json:"shouldReject,omitempty"`
+// }
+
+// // Validate errors out if `ShouldReject` is true.
+//
+//	func (c *CustomClaimsExample) Validate(ctx context.Context) error {
+//		if c.ShouldReject {
+//			return errors.New("should reject was set to true")
+//		}
+//		return nil
+//	}
+// func (c *CustomClaimsExample) Validate(ctx context.Context) error {
+// 	return nil
+// }
+
+// checkJWT is a gin.HandlerFunc middleware
+// that will check the validity of our JWT.
+// func (ah *AuthHandler) CheckJWT() gin.HandlerFunc {
+// 	// Set up the validator.
+// 	issuer, err := url.Parse("https://" + os.Getenv("AUTH0_DOMAIN") + "/")
+// 	if err != nil {
+// 		log.Fatal("Failed to parse the issuer url", err)
+// 	}
+// 	jwtValidator, err := validator.New(
+// 		keyFunc,
+// 		validator.RS256,
+// 		issuer.String(),
+// 		audience,
+// 		validator.WithCustomClaims(customClaims),
+// 		validator.WithAllowedClockSkew(30*time.Second),
+// 	)
+// 	if err != nil {
+// 		ah.logger.Error("failed to set up the validator", zap.Error(err))
+// 	}
+
+// 	errorHandler := func(w http.ResponseWriter, r *http.Request, err error) {
+// 		ah.logger.Error("Encountered error while validating JWT", zap.Error(err))
+// 	}
+
+// 	middleware := jwtmiddleware.New(
+// 		jwtValidator.ValidateToken,
+// 		jwtmiddleware.WithErrorHandler(errorHandler),
+// 	)
+
+// 	return func(ctx *gin.Context) {
+// 		encounteredError := true
+// 		var handler http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+// 			encounteredError = false
+// 			ctx.Request = r
+// 			ctx.Next()
+// 		}
+
+// 		middleware.CheckJWT(handler).ServeHTTP(ctx.Writer, ctx.Request)
+
+// 		if encounteredError {
+// 			ctx.AbortWithStatusJSON(
+// 				http.StatusUnauthorized,
+// 				map[string]string{"message": "JWT is invalid."},
+// 			)
+// 		}
+// 	}
+// }
