@@ -1,0 +1,8 @@
+{
+    "go.testEnvVars": {
+        "MONGO_DATABASE" : "recipe",
+        "MONGO_URI": "mongodb://admin:password@localhost:27017",
+        "REDIS_ADDR": "localhost:6379",
+        "LOG_LEVEL": "DEBUG"
+    }
+}

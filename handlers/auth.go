@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"github.com/ronenniv/Go-Gin-Auth/models"
-	"github.com/ronenniv/Go-Gin-Auth/types"
+	"github.com/ronenniv/go-gin-auth/models"
+	"github.com/ronenniv/go-gin-auth/types"
 	"github.com/rs/xid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -117,7 +117,8 @@ func (h *AuthHandler) AddUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, user.Username)
+	h.logger.Debug("user added", zap.String("usernamae", user.Username))
+	c.JSON(http.StatusOK, models.Message{Message: user.Username})
 }
 
 func (h *AuthHandler) AuthMiddlewareCookie() gin.HandlerFunc {

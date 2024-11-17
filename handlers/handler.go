@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
-	"github.com/ronenniv/Go-Gin-Auth/models"
-	"github.com/ronenniv/Go-Gin-Auth/types"
+	"github.com/ronenniv/go-gin-auth/models"
+	"github.com/ronenniv/go-gin-auth/types"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"

@@ -11,9 +11,11 @@ import (
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
-	"github.com/ronenniv/Go-Gin-Auth/handlers"
-	"github.com/ronenniv/Go-Gin-Auth/logger"
-	"github.com/ronenniv/Go-Gin-Auth/types"
+
+	"github.com/ronenniv/go-gin-auth/handlers"
+	"github.com/ronenniv/go-gin-auth/logger"
+	"github.com/ronenniv/go-gin-auth/types"
+
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -59,7 +61,7 @@ func init() {
 	authHandler = handlers.NewAuthHAndler(usersCollection, ginLogger)
 }
 
-func main() {
+func setupRouter() *gin.Engine {
 	router := gin.Default()
 	router.Use(ginzap.Ginzap(logger.InitLogger(), time.RFC850, true)) // middleware for logging with Zap
 	router.Use(cors.Default())                                        // middleware to allows all origins
@@ -91,6 +93,12 @@ func main() {
 			}
 		}
 	}
+
+	return router
+}
+
+func main() {
+	router := setupRouter()
 	if err := router.Run(); err != nil {
 		os.Exit(1)
 	}
